@@ -9,7 +9,7 @@ export async function GET(request) {
 
     const baseUrl = process.env.NEXT_PUBLIC_BACKEND_SEARCH_URL;
 
-    const apiUrl = `${baseUrl}/search?keyword=${encodeURIComponent(
+    const apiUrl = `${baseUrl}/products/search?keyword=${encodeURIComponent(
       keyword
     )}&page=${page}&limit=${limit}`;
 
