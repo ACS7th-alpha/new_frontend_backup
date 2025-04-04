@@ -1,0 +1,140 @@
+name: CI-Harbor
+
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types:
+      - completed
+
+permissions:
+  contents: write  # ✅ GitHub Actions에서 레포지토리 Push 권한 부여
+
+jobs:
+  build-and-push:
+    runs-on: self-hosted
+
+    steps:
+      - name: 📢 Notify Slack - Build Started
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": ":rocket: *CI/CD Pipeline Started* - CI-Harbor Workflow",
+            "attachments": [
+              {
+                "color": "#36a64f",
+                "fields": [
+                  { "title": "Repository", "value": "${{ github.repository }}", "short": true },
+                  { "title": "Branch", "value": "${{ github.ref }}", "short": true },
+                  { "title": "Trigger", "value": "${{ github.event_name }}", "short": true }
+                ]
+              }
+            ]
+          }' ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Fetch SonarQube Quality Gate Status
+        id: check_sonar
+        run: |
+          echo "Fetching SonarQube Quality Gate Status..."
+          STATUS=$(curl -s -u ${{ secrets.SONAR_TOKEN }}: \
+            "${{ secrets.SONAR_HOST_URL }}/api/qualitygates/project_status?projectKey=ACS7th-alpha-HAMA-front" \
+            | jq -r '.projectStatus.status')
+
+          echo "Quality Gate Status: $STATUS"
+          echo "quality_gate_status=$STATUS" >> $GITHUB_ENV
+
+      - name: ❌ Notify Slack - Quality Gate Failed
+        if: env.quality_gate_status != 'OK'
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": ":warning: *Quality Gate Failed!*",
+            "attachments": [
+              {
+                "color": "#ff0000",
+                "fields": [
+                  { "title": "Repository", "value": "${{ github.repository }}", "short": true },
+                  { "title": "Branch", "value": "${{ github.ref }}", "short": true },
+                  { "title": "Status", "value": "FAILED", "short": true }
+                ]
+              }
+            ]
+          }' ${{ secrets.SLACK_WEBHOOK_URL }}
+          exit 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22'
+
+      - name: Set BUILD_NUMBER
+        run: echo "BUILD_NUMBER=${{ github.run_number }}" >> $GITHUB_ENV
+
+      - name: Debug BUILD_NUMBER
+        run: |
+          echo "GitHub Actions Build Number: '$BUILD_NUMBER'"
+
+      - name: Login to Harbor (Secure)
+        run: |
+          echo "${{ secrets.HARBOR_PASSWORD }}" | docker login https://192.168.2.76:443 -u ${{ secrets.HARBOR_USERNAME }} --password-stdin
+
+      - name: Build and push Docker images
+        run: |
+          docker build -t 192.168.2.76:443/hama/hama-frontend:$BUILD_NUMBER .
+          docker push 192.168.2.76:443/hama/hama-frontend:$BUILD_NUMBER
+
+      - name: ✅ Notify Slack - Build & Push Success
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": ":white_check_mark: *Build & Push Success!*",
+            "attachments": [
+              {
+                "color": "#36a64f",
+                "fields": [
+                  { "title": "Repository", "value": "${{ github.repository }}", "short": true },
+                  { "title": "Branch", "value": "${{ github.ref }}", "short": true },
+                  { "title": "Docker Tag", "value": "${{ env.BUILD_NUMBER }}", "short": true }
+                ]
+              }
+            ]
+          }' ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Checkout CD Repo (`HAMA-ArgoCD-Kustomize`)
+        uses: actions/checkout@v3
+        with:
+          repository: ACS7th-alpha/HAMA-ArgoCD-Kustomize
+          ref: master
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}  # ✅ `HAMA-Frontend-CI`에서 `HAMA-ArgoCD-Kustomize`를 수정할 권한 필요
+
+      - name: Debug Before Update
+        run: |
+          cd kustomize
+          echo "==== Before Update ===="
+          cat kustomization.yaml || echo "File not found!"
+
+      - name: Ensure `newTag` exists and update
+        run: |
+          cd kustomize
+          if grep -q "newTag:" kustomization.yaml; then
+            sed -i "s|newTag:.*|newTag: \"$BUILD_NUMBER\"|" kustomization.yaml
+          else
+            echo "images:" >> kustomization.yaml
+            echo "  - name: 192.168.2.76:443/hama/hama-frontend" >> kustomization.yaml
+            echo "    newTag: \"$BUILD_NUMBER\"" >> kustomization.yaml
+          fi
+
+      - name: Debug After Update
+        run: |
+          cd kustomize
+          echo "==== After Update ===="
+          cat kustomization.yaml
+
+      - name: Commit and Push Changes
+        run: |
+          cd kustomize
+          git config --global user.email "rhdwnsqja12345@github.com"
+          git config --global user.name "jbjbjb01"
+          git add kustomization.yaml
+          git commit -m "Update image tag to $BUILD_NUMBER" || echo "No changes to commit"
+          git push origin master || echo "No changes to push"
+
