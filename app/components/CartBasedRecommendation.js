@@ -32,7 +32,7 @@ export default function CartBasedRecommendation() {
   const fetchBrandProducts = async (brand) => {
     try {
       const response = await fetch(
-        `/api/search?keyword=${encodeURIComponent(brand)}&page=1&limit=4`
+        `/api/products/search?keyword=${encodeURIComponent(brand)}&page=1&limit=4`
       );
 
       if (!response.ok) throw new Error('추천 상품 조회 실패');

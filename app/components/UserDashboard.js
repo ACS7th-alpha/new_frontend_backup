@@ -98,7 +98,7 @@ export default function UserDashboard({
       }
 
       // 검색 API 사용
-      const searchUrl = `/api/search?keyword=${encodeURIComponent(
+      const searchUrl = `/api/products/search?keyword=${encodeURIComponent(
         keyword
       )}&page=${page}&limit=${limit}`;
       //console.log('Fetching URL:', searchUrl);

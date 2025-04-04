@@ -38,7 +38,7 @@ export default function SearchPage() {
       console.log('[SearchPage] Fetching data:', { query, currentPage, limit });
 
       try {
-        const apiUrl = `/api/search?keyword=${encodeURIComponent(
+        const apiUrl = `/api/products/search?keyword=${encodeURIComponent(
           query
         )}&page=${currentPage}&limit=${limit}`;
         console.log('[SearchPage] API URL:', apiUrl);
